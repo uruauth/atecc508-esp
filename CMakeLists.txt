@@ -1,2 +1,4 @@
-idf_component_register(SRCS "src/atecc508a.c"
-                       INCLUDE_DIRS "include")
+set(COMPONENT_SRCS "")
+set(COMPONENT_ADD_INCLUDEDIRS "include")
+
+register_component()
