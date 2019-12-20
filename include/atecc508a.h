@@ -34,6 +34,14 @@ typedef enum
     ATECC508A_ERROR = 0xFF,
 } atecc508a_status_t;
 
+typedef enum
+{
+    ATECC508_INFO_REVISION = 0x00,
+    ATECC508_INFO_KEY_VALID = 0x01,
+    ATECC508_INFO_STATE = 0x02,
+    ATECC508_INFO_GPIO = 0x03
+} atecc508a_info_mode_t;
+
 /**
  * @brief Init ATECC508A device
  * 
@@ -102,7 +110,7 @@ esp_err_t atecc508a_hmac();
  * 
  * @return esp_err_t 
  */
-esp_err_t atecc508a_get_info();
+esp_err_t atecc508a_get_info(atecc508a_info_mode_t mode);
 
 /**
  * @brief Prevent further modifications to a zone of the device.
