@@ -1,5 +1,7 @@
 #include <esp_err.h>
 
+#include <driver/i2c.h>
+
 #include <atecc508a.h>
 
 esp_err_t atecc508a_init()
