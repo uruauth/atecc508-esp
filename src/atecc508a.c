@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include <esp_err.h>
 #include <esp_log.h>
 
@@ -12,17 +14,14 @@
 #define ATECC508A_ADDR 0x60
 #define ATECC508A_PORT CONFIG_ATECC508A_I2C_MASTER_PORT_NUM
 
-#define ACK_VAL 0x0  /*!< I2C ack value */
-#define NACK_VAL 0x1 /*!< I2C nack value */
-
 esp_err_t atecc508a_init()
 {
     i2c_config_t config = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = CONFIG_ATECC508A_I2C_MASTER_SDA,
-        .sda_pullup_en = GPIO_PULLUP_DISABLE,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_io_num = CONFIG_ATECC508A_I2C_MASTER_SCL,
-        .scl_pullup_en = GPIO_PULLUP_DISABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
         .master.clk_speed = CONFIG_ATECC508A_I2C_MASTER_FREQUENCY};
 
     ESP_CHECK_RET(i2c_param_config(ATECC508A_PORT, &config));
@@ -34,21 +33,96 @@ esp_err_t atecc508a_init()
     return ESP_OK;
 }
 
+#define ATECC508A_CRC_POLYNOM 0x8005
+
+/**
+ * @brief
+ *
+ * @param crc
+ */
+static void atecc508a_crc_begin(uint16_t *crc)
+{
+    *crc = 0x0000;
+}
+
+/**
+ * @brief
+ *
+ * @param crc
+ * @param data
+ * @param length
+ */
+static void atecc508a_crc_update(uint16_t *crc, uint8_t *data, size_t length)
+{
+    for (size_t counter = 0; counter < length; counter++)
+    {
+        for (uint8_t shift_register = 0x01; shift_register > 0x00; shift_register <<= 1)
+        {
+            uint8_t data_bit = (data[counter] & shift_register) ? 1 : 0;
+            uint8_t crc_bit = *crc >> 15;
+            *crc <<= 1;
+            if (data_bit != crc_bit)
+                *crc ^= ATECC508A_CRC_POLYNOM;
+        }
+    }
+}
+
+/**
+ * @brief
+ *
+ * @param data
+ * @param length
+ * @param crc
+ */
+static void atecc508a_crc(uint8_t *data, size_t length, uint16_t *crc)
+{
+    atecc508a_crc_begin(crc);
+    atecc508a_crc_update(crc, data, length);
+}
+
 /**
  * @brief
  *
  * @param command
  * @return esp_err_t
  */
-static esp_err_t atecc508a_send(uint8_t *buffer, size_t length)
+static esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, uint16_t param2, uint8_t *data, size_t length)
 {
+    // build packet array (total_transmission) to send a communication to IC, with opcode COMMAND
+    // It expects to see: word address, count, command opcode, param1, param2, data (optional), CRC[0], CRC[1]
+    uint8_t total_transmission_length = 1 + 1 + 1 + sizeof(param1) + sizeof(param2) + length + sizeof(uint16_t);
+
+    uint8_t header[] = {
+        0x03,
+        total_transmission_length - 1,
+        command,
+        param1,
+        (param2 & 0xFF),
+        (param2 >> 8)};
+
+    // calculate packet CRC
+    uint16_t crc = 0;
+    atecc508a_crc_begin(&crc);
+
+    atecc508a_crc_update(&crc, header + 1, sizeof(header) - 1);
+    atecc508a_crc_update(&crc, data, length);
+
+    // wake up the device
+    ESP_CHECK_RET(atecc508a_wake_up());
+
+    // send the data
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 
     i2c_master_start(cmd);
 
     i2c_master_write_byte(cmd, (ATECC508A_ADDR << 1) | I2C_MASTER_WRITE, 1);
 
-    i2c_master_write(cmd, buffer, length, 1);
+    i2c_master_write(cmd, header, sizeof(header), 1);
+    if (data != NULL)
+    {
+        i2c_master_write(cmd, data, length, 1);
+    }
+    i2c_master_write(cmd, (uint8_t *)&crc, sizeof(crc), 1);
 
     i2c_master_stop(cmd);
 
@@ -57,6 +131,16 @@ static esp_err_t atecc508a_send(uint8_t *buffer, size_t length)
     i2c_cmd_link_delete(cmd);
 
     return ret;
+}
+
+/**
+ * @brief
+ *
+ * @param delay
+ */
+static void atecc508a_delay(size_t delay)
+{
+    vTaskDelay(delay / portTICK_PERIOD_MS);
 }
 
 /**
@@ -68,25 +152,50 @@ static esp_err_t atecc508a_send(uint8_t *buffer, size_t length)
  */
 static esp_err_t atecc508a_receive(uint8_t *buffer, size_t length)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    size_t received = 0;
+    uint8_t retries = 0;
 
-    i2c_master_start(cmd);
-
-    i2c_master_write_byte(cmd, (ATECC508A_ADDR << 1) | I2C_MASTER_READ, ACK_VAL);
-
-    if (length > 1)
+    while (length > 0)
     {
-        i2c_master_read(cmd, buffer, length - 1, ACK_VAL);
+        uint8_t requestLength = length > 32 ? 32 : length;
+
+        esp_err_t ret;
+
+        {
+            i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+
+            i2c_master_start(cmd);
+
+            i2c_master_write_byte(cmd, (ATECC508A_ADDR << 1) | I2C_MASTER_READ, 0);
+
+            if (requestLength > 1)
+            {
+                i2c_master_read(cmd, buffer + received, requestLength - 1, 0);
+            }
+            i2c_master_read_byte(cmd, buffer + received + requestLength - 1, 1);
+
+            i2c_master_stop(cmd);
+
+            ret = i2c_master_cmd_begin(ATECC508A_PORT, cmd, 1000 / portTICK_RATE_MS);
+
+            i2c_cmd_link_delete(cmd);
+        }
+
+        if (ret == ESP_OK)
+        {
+            received += requestLength;
+            length -= requestLength;
+        }
+
+        if (retries++ >= 20)
+        {
+            return ESP_FAIL;
+        }
     }
-    i2c_master_read_byte(cmd, buffer + length - 1, NACK_VAL);
 
-    i2c_master_stop(cmd);
+    ESP_LOGD(LOG_TAG, "%s retry count: %d", __FUNCTION__, retries);
 
-    esp_err_t ret = i2c_master_cmd_begin(ATECC508A_PORT, cmd, 1000 / portTICK_RATE_MS);
-
-    i2c_cmd_link_delete(cmd);
-
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t atecc508a_wake_up()
@@ -97,52 +206,114 @@ esp_err_t atecc508a_wake_up()
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 
     i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, 0, ACK_VAL);
+    i2c_master_write_byte(cmd, 0, 0);
     i2c_master_stop(cmd);
 
     esp_err_t ret = i2c_master_cmd_begin(ATECC508A_PORT, cmd, 1000 / portTICK_RATE_MS);
 
     i2c_cmd_link_delete(cmd);
 
-    ESP_CHECK_RET(ret);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(LOG_TAG, "Failed to execute I2C comman");
+        return ret;
+    }
 
     // some delay
     // 1500 uSeconds is minimum and known as "Wake High Delay to Data Comm." tWHI, and SDA must be high during this time.
-    vTaskDelay(2 / portTICK_PERIOD_MS);
+    atecc508a_delay(2);
 
-    // Read back from the ATECC508A
-    uint8_t buffer[4];
-
-    ESP_CHECK_RET(atecc508a_receive(buffer, 4));
-
-    ESP_LOG_BUFFER_HEX(LOG_TAG, buffer, 4);
-
-    // check count
-
-    // check crc
-
-    // buffer[1] = 0x11;
-
-    return ESP_OK;
-}
-
-esp_err_t atecc508a_get_info(atecc508a_info_mode_t mode)
-{
-    uint8_t cmd[4] = {0x30, 0x00, 0x00, 0x00};
-
-    ESP_CHECK_RET(atecc508a_send(cmd, 4));
-
+    // Try to read back from the ATECC508A
     uint8_t response[4];
 
     ESP_CHECK_RET(atecc508a_receive(response, 4));
 
+    ESP_LOGI(LOG_TAG, "Wake up response recieved");
     ESP_LOG_BUFFER_HEX(LOG_TAG, response, 4);
+
+    // check crc and wake up value
+    uint16_t crc;
+    atecc508a_crc(response, 2, &crc);
+    if (crc != 0x4333 || response[1] != ATECC508A_WAKE)
+    {
+        ESP_LOGE(LOG_TAG, "Failed to wake up");
+        return ESP_FAIL;
+    }
 
     return ESP_OK;
 }
 
-esp_err_t atecc508a_random(uint32_t *random, uint8_t update_seed)
+esp_err_t atecc508a_sleep()
 {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (ATECC508A_ADDR << 1) | I2C_MASTER_WRITE, 1);
+    i2c_master_write_byte(cmd, 0x01, 1);
+    i2c_master_stop(cmd);
+
+    esp_err_t ret = i2c_master_cmd_begin(ATECC508A_PORT, cmd, 1000 / portTICK_RATE_MS);
+
+    i2c_cmd_link_delete(cmd);
+
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(LOG_TAG, "Error entering sleep mode");
+        return ret;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_idle()
+{
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (ATECC508A_ADDR << 1) | I2C_MASTER_WRITE, 1);
+    i2c_master_write_byte(cmd, 0x02, 1);
+    i2c_master_stop(cmd);
+
+    esp_err_t ret = i2c_master_cmd_begin(ATECC508A_PORT, cmd, 1000 / portTICK_RATE_MS);
+
+    i2c_cmd_link_delete(cmd);
+
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(LOG_TAG, "Error entering idle mode");
+        return ret;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_random(uint8_t *random, uint8_t mode)
+{
+    // send command
+    ESP_CHECK_RET(atecc508a_send_command(ATECC508A_CMD_RANDOM, 0x00, 0x0000, NULL, 0));
+
+    atecc508a_delay(23);
+
+    // receive the response
+    uint8_t response[35] = {};
+
+    ESP_CHECK_RET(atecc508a_receive(response, sizeof(response)));
+
+    ESP_LOGI(LOG_TAG, "Random response received");
+    ESP_LOG_BUFFER_HEX(LOG_TAG, response, sizeof(response));
+
+    uint16_t crc;
+    atecc508a_crc(response, 33, &crc);
+
+    uint16_t ccrc = response[33] | (response[34] << 8);
+
+    if (ccrc != crc)
+    {
+        ESP_LOGE(LOG_TAG, "Error receiving random value");
+        return ESP_FAIL;
+    }
+
+    memcpy(random, response + 1, 32);
 
     return ESP_OK;
 }

@@ -4,6 +4,11 @@
 
 typedef enum
 {
+    ATECC508A_CMD_RANDOM = 0x1B,
+} atecc508a_command_t;
+
+typedef enum
+{
     // Command executed successfully.
     ATECC508A_SUCCESS = 0x00,
     // The CheckMac or Verify command was properly sent to the device, but
@@ -57,150 +62,22 @@ esp_err_t atecc508a_init();
 esp_err_t atecc508a_wake_up();
 
 /**
- * @brief Verify a MAC calculated on another CryptoAuthentication device.
+ * @brief
  *
  * @return esp_err_t
  */
-esp_err_t atecc508a_check_mac();
+esp_err_t atecc508a_sleep();
 
 /**
- * @brief Read one of the monotonic counters
+ * @brief
  *
  * @return esp_err_t
  */
-esp_err_t atecc508a_get_counter();
+esp_err_t atecc508a_idle();
 
 /**
- * @brief Increment one of the monotonic counters
+ * @brief
  *
  * @return esp_err_t
  */
-esp_err_t atecc508a_inc_counter();
-
-/**
- * @brief Derive a target key value from the target or parent key.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_derive_key();
-
-/**
- * @brief Generate an ECDH master secret using stored private key and input public key.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_ecdh();
-
-/**
- * @brief Generate a data digest from a random or input seed and a key.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_gen_dig();
-
-/**
- * @brief Generate an ECC public key. Optionally generate an ECC private key.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_gen_key();
-
-/**
- * @brief Calculate response from key and other internal data using HMAC/SHA-256.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_hmac();
-
-/**
- * @brief Return device state information.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_get_info(atecc508a_info_mode_t mode);
-
-/**
- * @brief Prevent further modifications to a zone of the device.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_lock();
-
-/**
- * @brief Calculate response from key and other internal data using SHA-256.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_mac();
-
-/**
- * @brief Generate a 32-byte random number and an internally stored Nonce.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_nonce();
-
-/**
- * @brief Selectively put just one device on a shared bus into the idle mode.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_pause();
-
-/**
- * @brief Write an ECC private key into a slot in the Data zone.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_priv_write();
-
-/**
- * @brief Generate a random number.
- *
- * @param random pointer to resulting random value
- * @param update_seed controls the mechanism of the internal RNG and seed update.
- * @return esp_err_t
- */
-esp_err_t atecc508a_random(uint32_t *random, uint8_t update_seed);
-
-/**
- * @brief Read four bytes from the device, with or without authentication and encryption.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_read();
-
-/**
- * @brief ECDSA signature calculation.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_sign();
-
-/**
- * @brief Computes a SHA-256 or HMAC digest for general purpose use by the system.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_sha();
-
-/**
- * @brief Update bytes 84 or 85 within the Configuration zone after the Configuration zone is locked.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_update_extra();
-
-/**
- * @brief ECDSA verify calculation.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_verify();
-
-/**
- * @brief Write 4 or 32 bytes to the device, with or without authentication and encryption.
- *
- * @return esp_err_t
- */
-esp_err_t atecc508a_write();
+esp_err_t atecc508a_random(uint8_t *random, uint8_t mode);
