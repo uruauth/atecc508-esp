@@ -14,6 +14,9 @@
 #define ATECC508A_ADDR 0x60
 #define ATECC508A_PORT CONFIG_ATECC508A_I2C_MASTER_PORT_NUM
 
+// forward declarations
+static esp_err_t atecc508a_receive(uint8_t *buffer, size_t length);
+
 esp_err_t atecc508a_init()
 {
     i2c_config_t config = {
