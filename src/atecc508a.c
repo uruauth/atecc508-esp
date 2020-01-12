@@ -14,6 +14,9 @@
 #define ATECC508A_ADDR 0x60
 #define ATECC508A_PORT CONFIG_ATECC508A_I2C_MASTER_PORT_NUM
 
+//
+uint8_t atecc508a_config[128];
+
 // forward declarations
 static esp_err_t atecc508a_receive(uint8_t *buffer, size_t length);
 
@@ -103,16 +106,38 @@ static void atecc508a_crc_end(atecc508a_crc_ctx_t *ctx, uint16_t *crc)
  * @param length
  * @param crc
  */
-static void atecc508a_crc(uint8_t *data, size_t length, uint16_t *crc)
+static uint16_t atecc508a_crc(uint8_t *data, size_t length)
 {
+    uint16_t crc;
     atecc508a_crc_ctx_t ctx;
     atecc508a_crc_begin(&ctx);
     atecc508a_crc_update(&ctx, data, length);
-    atecc508a_crc_end(&ctx, crc);
+    atecc508a_crc_end(&ctx, &crc);
+    return crc;
+}
+
+/**
+ * @brief Check CRC of the responses
+ *
+ * @param response
+ * @param length
+ * @return esp_err_t
+ */
+static esp_err_t atecc508a_check_crc(uint8_t *response, size_t length)
+{
+    uint16_t response_crc = response[length - 2] | (response[length - 1] << 8);
+    uint16_t calculated_crc = atecc508a_crc(response, length - 2);
+
+    ESP_LOGD(LOG_TAG, "Response CRC: 0x%X", response_crc);
+    ESP_LOGD(LOG_TAG, "Buffer CRC: 0x%X", calculated_crc);
+
+    return (response_crc == calculated_crc) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
 esp_err_t atecc508a_wake_up()
 {
+    ESP_LOGD(LOG_TAG, "> Wake Up");
+
     // set up to write to address "0x00"
     // This creates a "wake condition" where SDA is held low for at least tWLO
     // tWLO means "wake low duration" and must be at least 60 uSeconds (which is acheived by writing 0x00 at 100KHz I2C)
@@ -137,17 +162,15 @@ esp_err_t atecc508a_wake_up()
     atecc508a_delay(2);
 
     // Try to read back from the ATECC508A
-    uint8_t response[4];
+    // 1 byte + status + CRC
+    uint8_t response[1 + 3];
 
-    ESP_CHECK_RET(atecc508a_receive(response, 4));
-
-    ESP_LOGI(LOG_TAG, "Wake up response recieved");
-    ESP_LOG_BUFFER_HEX(LOG_TAG, response, 4);
+    ESP_CHECK_RET(atecc508a_receive(response, sizeof(response)));
 
     // check crc and wake up value
-    uint16_t crc;
-    atecc508a_crc(response, 2, &crc);
-    if (crc != 0x4333 || response[1] != ATECC508A_WAKE)
+    ESP_CHECK_RET(atecc508a_check_crc(response, sizeof(response)));
+
+    if (response[1] != ATECC508A_WAKE)
     {
         ESP_LOGE(LOG_TAG, "Failed to wake up");
         return ESP_FAIL;
@@ -208,6 +231,10 @@ esp_err_t atecc508a_idle()
  */
 static esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, uint16_t param2, uint8_t *data, size_t length)
 {
+    ESP_LOGD(LOG_TAG, "Sending command 0x%02X", command);
+    ESP_LOGD(LOG_TAG, "  param1 0x%02X", param1);
+    ESP_LOGD(LOG_TAG, "  param2 0x%04X", param2);
+
     // build packet array (total_transmission) to send a communication to IC, with opcode COMMAND
     // It expects to see: word address, count, command opcode, param1, param2, data (optional), CRC[0], CRC[1]
     uint8_t total_transmission_length = 1 + 1 + 1 + sizeof(param1) + sizeof(param2) + length + sizeof(uint16_t);
@@ -315,8 +342,109 @@ static esp_err_t atecc508a_receive(uint8_t *buffer, size_t length)
         }
     }
 
-    ESP_LOGD(LOG_TAG, "%s retry count: %d", __FUNCTION__, retries);
+    ESP_LOGD(LOG_TAG, "Response received (%d bytes, %d retries)", received, retries);
+    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, buffer, length, ESP_LOG_DEBUG);
 
+    return ESP_OK;
+}
+
+/**
+ * @brief Reads data from the IC at a specific zone and address.
+ *
+ * @param zone
+ * @param address
+ * @param buffer
+ * @param length
+ * @return esp_err_t
+ */
+esp_err_t atecc508a_read(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_t length)
+{
+    // adjust zone as needed for whether it's 4 or 32 bytes length read
+    // bit 7 of zone needs to be set correctly
+    // (0 = 4 Bytes are read)
+    // (1 = 32 Bytes are read)
+    if (length == 32)
+    {
+        zone |= 0b10000000; // set bit 7
+    }
+    else if (length == 4)
+    {
+        zone &= ~0b10000000; // clear bit 7
+    }
+    else
+    {
+        return ESP_ERR_INVALID_ARG; // invalid length, abort.
+    }
+
+    ESP_CHECK_RET(atecc508a_send_command(ATECC508A_CMD_READ, zone, address, NULL, 0));
+
+    atecc508a_delay(1);
+
+    uint8_t tmp_buf[35];
+
+    ESP_CHECK_RET(atecc508a_receive(tmp_buf, sizeof(tmp_buf)));
+
+    ESP_LOGD(LOG_TAG, "Read received:");
+    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, tmp_buf, sizeof(tmp_buf), ESP_LOG_DEBUG);
+
+    ESP_CHECK_RET(atecc508a_idle());
+
+    ESP_CHECK_RET(atecc508a_check_crc(tmp_buf, sizeof(tmp_buf)));
+
+    // copy response
+    memcpy(buffer, tmp_buf + 1, length);
+
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_write()
+{
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_read_config_zone()
+{
+    ESP_ERROR_CHECK(atecc508a_read(ATECC508A_ZONE_CONFIG, ATECC508A_ADDRESS_CONFIG_READ_BLOCK_0, atecc508a_config, 32));
+
+    ESP_ERROR_CHECK(atecc508a_read(ATECC508A_ZONE_CONFIG, ATECC508A_ADDRESS_CONFIG_READ_BLOCK_1, atecc508a_config + 32, 32));
+
+    ESP_ERROR_CHECK(atecc508a_read(ATECC508A_ZONE_CONFIG, ATECC508A_ADDRESS_CONFIG_READ_BLOCK_2, atecc508a_config + 64, 32));
+
+    ESP_ERROR_CHECK(atecc508a_read(ATECC508A_ZONE_CONFIG, ATECC508A_ADDRESS_CONFIG_READ_BLOCK_3, atecc508a_config + 96, 32));
+
+    ESP_LOGI(LOG_TAG, "Config Zone:");
+    ESP_LOG_BUFFER_HEX(LOG_TAG, atecc508a_config, 128);
+
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_is_configured(uint8_t *is_configured)
+{
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_write_config()
+{
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_lock_config()
+{
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_create_key_pair()
+{
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_lock_data_otp()
+{
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_lock_data_slot0()
+{
     return ESP_OK;
 }
 
@@ -332,19 +460,12 @@ esp_err_t atecc508a_random(uint8_t *random, uint8_t mode)
 
     ESP_CHECK_RET(atecc508a_receive(response, sizeof(response)));
 
+    ESP_CHECK_RET(atecc508a_idle());
+
     ESP_LOGI(LOG_TAG, "Random response received");
     ESP_LOG_BUFFER_HEX(LOG_TAG, response, sizeof(response));
 
-    uint16_t crc;
-    atecc508a_crc(response, 33, &crc);
-
-    uint16_t ccrc = response[33] | (response[34] << 8);
-
-    if (ccrc != crc)
-    {
-        ESP_LOGE(LOG_TAG, "Error receiving random value");
-        return ESP_FAIL;
-    }
+    ESP_CHECK_RET(atecc508a_check_crc(response, sizeof(response)));
 
     memcpy(random, response + 1, 32);
 

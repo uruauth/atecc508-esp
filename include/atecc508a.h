@@ -4,6 +4,7 @@
 
 typedef enum
 {
+    ATECC508A_CMD_READ = 0x02,
     ATECC508A_CMD_RANDOM = 0x1B,
 } atecc508a_command_t;
 
@@ -47,6 +48,21 @@ typedef enum
     ATECC508_INFO_GPIO = 0x03
 } atecc508a_info_mode_t;
 
+typedef enum
+{
+    ATECC508A_ZONE_CONFIG = 0x00,
+    ATECC508A_ZONE_OTP = 0x01,
+    ATECC508A_ZONE_DATA = 0x02,
+} atecc508a_zone_t;
+
+typedef enum
+{
+    ATECC508A_ADDRESS_CONFIG_READ_BLOCK_0 = 0x0000,
+    ATECC508A_ADDRESS_CONFIG_READ_BLOCK_1 = 0x0008,
+    ATECC508A_ADDRESS_CONFIG_READ_BLOCK_2 = 0x0010,
+    ATECC508A_ADDRESS_CONFIG_READ_BLOCK_3 = 0x0018,
+} atecc508a_addr_t;
+
 /**
  * @brief Init ATECC508A device
  *
@@ -74,6 +90,36 @@ esp_err_t atecc508a_sleep();
  * @return esp_err_t
  */
 esp_err_t atecc508a_idle();
+
+/**
+ * @brief
+ *
+ * @return esp_err_t
+ */
+esp_err_t atecc508a_read_config_zone();
+
+/**
+ * @brief
+ *
+ * @param is_configured
+ * @return esp_err_t
+ */
+esp_err_t atecc508a_is_configured(uint8_t *is_configured);
+
+/**
+ * @brief
+ *
+ * @return esp_err_t
+ */
+esp_err_t atecc508a_write_config();
+
+esp_err_t atecc508a_lock_config();
+
+esp_err_t atecc508a_create_key_pair();
+
+esp_err_t atecc508a_lock_data_otp();
+
+esp_err_t atecc508a_lock_data_slot0();
 
 /**
  * @brief
