@@ -26,3 +26,23 @@ esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, ui
  * @return esp_err_t
  */
 esp_err_t atecc508a_receive(uint8_t *buffer, size_t length);
+
+/**
+ * @brief
+ *
+ * @param buffer
+ * @param length
+ * @return esp_err_t
+ */
+esp_err_t atecc508a_receive(uint8_t *buffer, size_t length);
+
+/**
+ * @brief Reads data from the IC at a specific zone and address.
+ *
+ * @param zone
+ * @param address
+ * @param buffer
+ * @param length
+ * @return esp_err_t
+ */
+esp_err_t atecc508a_read(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_t length);

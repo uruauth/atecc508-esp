@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -10,8 +12,8 @@
 #include "atecc508a.h"
 #include "atecc508a_comm.h"
 #include "atecc508a_crc.h"
-#include "atecc508a_util.h"
 #include "atecc508a_pwr.h"
+#include "atecc508a_util.h"
 
 #define LOG_TAG "atecc508a"
 
@@ -147,5 +149,47 @@ esp_err_t atecc508a_receive(uint8_t *buffer, size_t length)
     ESP_LOGD(LOG_TAG, "< Response received (%d bytes, %d retries)", received, retries);
     ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, buffer, received, ESP_LOG_DEBUG);
 
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_read(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_t length)
+{
+    // adjust zone as needed for whether it's 4 or 32 bytes length read
+    // bit 7 of zone needs to be set correctly
+    // (0 = 4 Bytes are read)
+    // (1 = 32 Bytes are read)
+    if (length == 32)
+    {
+        zone |= 0b10000000; // set bit 7
+    }
+    else if (length == 4)
+    {
+        zone &= ~0b10000000; // clear bit 7
+    }
+    else
+    {
+        return ESP_ERR_INVALID_ARG; // invalid length, abort.
+    }
+
+    ESP_CHECK_RET(atecc508a_send_command(ATECC508A_CMD_READ, zone, address, NULL, 0));
+
+    atecc508a_delay(1);
+
+    uint8_t tmp_buf[35];
+
+    ESP_CHECK_RET(atecc508a_receive(tmp_buf, sizeof(tmp_buf)));
+
+    ESP_CHECK_RET(atecc508a_idle());
+
+    ESP_CHECK_RET(atecc508a_check_crc(tmp_buf, sizeof(tmp_buf)));
+
+    // copy response
+    memcpy(buffer, tmp_buf + 1, length);
+
+    return ESP_OK;
+}
+
+esp_err_t atecc508a_write()
+{
     return ESP_OK;
 }
