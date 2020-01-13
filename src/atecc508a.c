@@ -6,6 +6,8 @@
 #include <driver/i2c.h>
 
 #include "atecc508a.h"
+#include "atecc508a_crc.h"
+
 #include "error_handler.h"
 #include "sdkconfig.h"
 
@@ -47,73 +49,6 @@ esp_err_t atecc508a_init()
 static void atecc508a_delay(size_t delay)
 {
     vTaskDelay(delay / portTICK_PERIOD_MS);
-}
-
-#define ATECC508A_CRC_POLYNOM 0x8005
-
-typedef struct
-{
-    uint16_t crc;
-} atecc508a_crc_ctx_t;
-
-/**
- * @brief
- *
- * @param crc
- */
-static void atecc508a_crc_begin(atecc508a_crc_ctx_t *ctx)
-{
-    ctx->crc = 0x0000;
-}
-
-/**
- * @brief
- *
- * @param crc
- * @param data
- * @param length
- */
-static void atecc508a_crc_update(atecc508a_crc_ctx_t *ctx, uint8_t *data, size_t length)
-{
-    for (size_t counter = 0; counter < length; counter++)
-    {
-        for (uint8_t shift_register = 0x01; shift_register > 0x00; shift_register <<= 1)
-        {
-            uint8_t data_bit = (data[counter] & shift_register) ? 1 : 0;
-            uint8_t crc_bit = ctx->crc >> 15;
-            ctx->crc <<= 1;
-            if (data_bit != crc_bit)
-                ctx->crc ^= ATECC508A_CRC_POLYNOM;
-        }
-    }
-}
-
-/**
- * @brief
- *
- * @param ctx
- * @param crc
- */
-static void atecc508a_crc_end(atecc508a_crc_ctx_t *ctx, uint16_t *crc)
-{
-    *crc = ctx->crc;
-}
-
-/**
- * @brief
- *
- * @param data
- * @param length
- * @param crc
- */
-static uint16_t atecc508a_crc(uint8_t *data, size_t length)
-{
-    uint16_t crc;
-    atecc508a_crc_ctx_t ctx;
-    atecc508a_crc_begin(&ctx);
-    atecc508a_crc_update(&ctx, data, length);
-    atecc508a_crc_end(&ctx, &crc);
-    return crc;
 }
 
 /**
@@ -181,6 +116,8 @@ esp_err_t atecc508a_wake_up()
 
 esp_err_t atecc508a_sleep()
 {
+    ESP_LOGD(LOG_TAG, "> Sleep");
+
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 
     i2c_master_start(cmd);
@@ -203,6 +140,8 @@ esp_err_t atecc508a_sleep()
 
 esp_err_t atecc508a_idle()
 {
+    ESP_LOGD(LOG_TAG, "> Idle");
+
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 
     i2c_master_start(cmd);
@@ -227,13 +166,15 @@ esp_err_t atecc508a_idle()
  * @brief
  *
  * @param command
+ * @param param1
+ * @param param2
+ * @param data
+ * @param length
  * @return esp_err_t
  */
 static esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, uint16_t param2, uint8_t *data, size_t length)
 {
-    ESP_LOGD(LOG_TAG, "Sending command 0x%02X", command);
-    ESP_LOGD(LOG_TAG, "  param1 0x%02X", param1);
-    ESP_LOGD(LOG_TAG, "  param2 0x%04X", param2);
+    ESP_LOGD(LOG_TAG, "> Sending command 0x%02X param1=0x%02X, param2=0x%04X", command, param1, param2);
 
     // build packet array (total_transmission) to send a communication to IC, with opcode COMMAND
     // It expects to see: word address, count, command opcode, param1, param2, data (optional), CRC[0], CRC[1]
@@ -247,6 +188,8 @@ static esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t par
         (param2 & 0xFF),
         (param2 >> 8)};
 
+    uint16_t crc;
+
     // calculate packet CRC
     atecc508a_crc_ctx_t ctx;
     atecc508a_crc_begin(&ctx);
@@ -254,8 +197,12 @@ static esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t par
     atecc508a_crc_update(&ctx, header + 1, sizeof(header) - 1);
     atecc508a_crc_update(&ctx, data, length);
 
+    atecc508a_crc_end(&ctx, &crc);
+
     // wake up the device
     ESP_CHECK_RET(atecc508a_wake_up());
+
+    ESP_LOGD(LOG_TAG, "> Sending command");
 
     // send the data
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -275,7 +222,7 @@ static esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t par
     }
 
     // crc
-    i2c_master_write(cmd, (uint8_t *)&ctx.crc, sizeof(uint16_t), 1);
+    i2c_master_write(cmd, (uint8_t *)&crc, sizeof(uint16_t), 1);
 
     i2c_master_stop(cmd);
 
@@ -288,6 +235,8 @@ static esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t par
         ESP_LOGE(LOG_TAG, "Error sending command to device");
         return ret;
     }
+
+    ESP_LOGD(LOG_TAG, "> Command sent");
 
     return ESP_OK;
 }
@@ -342,8 +291,8 @@ static esp_err_t atecc508a_receive(uint8_t *buffer, size_t length)
         }
     }
 
-    ESP_LOGD(LOG_TAG, "Response received (%d bytes, %d retries)", received, retries);
-    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, buffer, length, ESP_LOG_DEBUG);
+    ESP_LOGD(LOG_TAG, "< Response received (%d bytes, %d retries)", received, retries);
+    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, buffer, received, ESP_LOG_DEBUG);
 
     return ESP_OK;
 }
@@ -384,9 +333,6 @@ esp_err_t atecc508a_read(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_
 
     ESP_CHECK_RET(atecc508a_receive(tmp_buf, sizeof(tmp_buf)));
 
-    ESP_LOGD(LOG_TAG, "Read received:");
-    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, tmp_buf, sizeof(tmp_buf), ESP_LOG_DEBUG);
-
     ESP_CHECK_RET(atecc508a_idle());
 
     ESP_CHECK_RET(atecc508a_check_crc(tmp_buf, sizeof(tmp_buf)));
@@ -412,8 +358,8 @@ esp_err_t atecc508a_read_config_zone()
 
     ESP_ERROR_CHECK(atecc508a_read(ATECC508A_ZONE_CONFIG, ATECC508A_ADDRESS_CONFIG_READ_BLOCK_3, atecc508a_config + 96, 32));
 
-    ESP_LOGI(LOG_TAG, "Config Zone:");
-    ESP_LOG_BUFFER_HEX(LOG_TAG, atecc508a_config, 128);
+    ESP_LOGD(LOG_TAG, "Config Zone:");
+    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, atecc508a_config, 128, ESP_LOG_DEBUG);
 
     return ESP_OK;
 }
@@ -450,20 +396,16 @@ esp_err_t atecc508a_lock_data_slot0()
 
 esp_err_t atecc508a_random(uint8_t *random, uint8_t mode)
 {
+    uint8_t response[35] = {};
+
     // send command
     ESP_CHECK_RET(atecc508a_send_command(ATECC508A_CMD_RANDOM, 0x00, 0x0000, NULL, 0));
 
     atecc508a_delay(23);
 
-    // receive the response
-    uint8_t response[35] = {};
-
     ESP_CHECK_RET(atecc508a_receive(response, sizeof(response)));
 
     ESP_CHECK_RET(atecc508a_idle());
-
-    ESP_LOGI(LOG_TAG, "Random response received");
-    ESP_LOG_BUFFER_HEX(LOG_TAG, response, sizeof(response));
 
     ESP_CHECK_RET(atecc508a_check_crc(response, sizeof(response)));
 
