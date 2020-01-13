@@ -2,11 +2,8 @@
 
 #include <esp_err.h>
 
-typedef enum
-{
-    ATECC508A_CMD_READ = 0x02,
-    ATECC508A_CMD_RANDOM = 0x1B,
-} atecc508a_command_t;
+#define ATECC508A_ADDR 0x60
+#define ATECC508A_PORT CONFIG_ATECC508A_I2C_MASTER_PORT_NUM
 
 typedef enum
 {
