@@ -1,9 +1,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include <esp_system.h>
-#include <esp_log.h>
 #include <esp_err.h>
+#include <esp_log.h>
+#include <esp_system.h>
 
 #include "atecc508a_crc.h"
 
@@ -34,5 +34,5 @@ esp_err_t atecc508a_check_crc(uint8_t *response, size_t length)
     ESP_LOGD(LOG_TAG, "Response CRC: 0x%X", response_crc);
     ESP_LOGD(LOG_TAG, "Buffer CRC: 0x%X", calculated_crc);
 
-    return (response_crc == calculated_crc) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+    return (response_crc == calculated_crc) ? ESP_OK : ESP_ERR_INVALID_CRC;
 }

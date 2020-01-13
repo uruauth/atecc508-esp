@@ -15,18 +15,10 @@
 #include "atecc508a_pwr.h"
 #include "atecc508a_util.h"
 
+#include "sdkconfig.h"
+
 #define LOG_TAG "atecc508a"
 
-/**
- * @brief
- *
- * @param command
- * @param param1
- * @param param2
- * @param data
- * @param length
- * @return esp_err_t
- */
 esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, uint16_t param2, uint8_t *data, size_t length)
 {
     ESP_LOGD(LOG_TAG, "> Sending command 0x%02X param1=0x%02X, param2=0x%04X", command, param1, param2);
@@ -96,58 +88,48 @@ esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, ui
     return ESP_OK;
 }
 
-/**
- * @brief
- *
- * @param buffer
- * @param length
- * @return esp_err_t
- */
 esp_err_t atecc508a_receive(uint8_t *buffer, size_t length)
 {
     size_t received = 0;
+    size_t left = length;
     uint8_t retries = 0;
 
-    while (length > 0)
+    while (left > 0)
     {
-        uint8_t requestLength = length > 32 ? 32 : length;
+        uint8_t requestLength = left > 32 ? 32 : left;
 
-        esp_err_t ret;
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 
+        i2c_master_start(cmd);
+
+        i2c_master_write_byte(cmd, (ATECC508A_ADDR << 1) | I2C_MASTER_READ, 0);
+
+        if (requestLength > 1)
         {
-            i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-
-            i2c_master_start(cmd);
-
-            i2c_master_write_byte(cmd, (ATECC508A_ADDR << 1) | I2C_MASTER_READ, 0);
-
-            if (requestLength > 1)
-            {
-                i2c_master_read(cmd, buffer + received, requestLength - 1, 0);
-            }
-            i2c_master_read_byte(cmd, buffer + received + requestLength - 1, 1);
-
-            i2c_master_stop(cmd);
-
-            ret = i2c_master_cmd_begin(ATECC508A_PORT, cmd, 1000 / portTICK_RATE_MS);
-
-            i2c_cmd_link_delete(cmd);
+            i2c_master_read(cmd, buffer + received, requestLength - 1, 0);
         }
+        i2c_master_read_byte(cmd, buffer + received + requestLength - 1, 1);
+
+        i2c_master_stop(cmd);
+
+        esp_err_t ret = i2c_master_cmd_begin(ATECC508A_PORT, cmd, 1000 / portTICK_RATE_MS);
+
+        i2c_cmd_link_delete(cmd);
 
         if (ret == ESP_OK)
         {
             received += requestLength;
-            length -= requestLength;
+            left -= requestLength;
         }
 
         if (retries++ >= 20)
         {
-            return ESP_FAIL;
+            return ESP_ERR_TIMEOUT;
         }
     }
 
     ESP_LOGD(LOG_TAG, "< Response received (%d bytes, %d retries)", received, retries);
-    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, buffer, received, ESP_LOG_DEBUG);
+    ESP_LOG_BUFFER_HEX_LEVEL(LOG_TAG, buffer, length, ESP_LOG_DEBUG);
 
     return ESP_OK;
 }
@@ -189,7 +171,41 @@ esp_err_t atecc508a_read(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_
     return ESP_OK;
 }
 
-esp_err_t atecc508a_write()
+esp_err_t atecc508a_write(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_t length)
 {
+    // adjust zone as needed for whether it's 4 or 32 bytes length read
+    // bit 7 of zone needs to be set correctly
+    // (0 = 4 Bytes are read)
+    // (1 = 32 Bytes are read)
+    if (length == 32)
+    {
+        zone |= 0b10000000; // set bit 7
+    }
+    else if (length == 4)
+    {
+        zone &= ~0b10000000; // clear bit 7
+    }
+    else
+    {
+        return ESP_ERR_INVALID_ARG; // invalid length, abort.
+    }
+
+    ESP_CHECK_RET(atecc508a_send_command(ATECC508A_CMD_WRITE, zone, address, buffer, length));
+
+    atecc508a_delay(26);
+
+    uint8_t tmp_buf[4];
+
+    ESP_CHECK_RET(atecc508a_receive(tmp_buf, sizeof(tmp_buf)));
+
+    ESP_CHECK_RET(atecc508a_idle());
+
+    ESP_CHECK_RET(atecc508a_check_crc(tmp_buf, sizeof(tmp_buf)));
+
+    if (tmp_buf[1] != 0x00)
+    {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
     return ESP_OK;
 }

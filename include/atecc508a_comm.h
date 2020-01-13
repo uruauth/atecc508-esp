@@ -3,6 +3,8 @@
 typedef enum
 {
     ATECC508A_CMD_READ = 0x02,
+    ATECC508A_CMD_WRITE = 0x12,
+    ATECC508A_CMD_LOCK = 0x17,
     ATECC508A_CMD_RANDOM = 0x1B,
 } atecc508a_command_t;
 
@@ -46,3 +48,14 @@ esp_err_t atecc508a_receive(uint8_t *buffer, size_t length);
  * @return esp_err_t
  */
 esp_err_t atecc508a_read(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_t length);
+
+/**
+ * @brief
+ *
+ * @param zone
+ * @param address
+ * @param buffer
+ * @param length
+ * @return esp_err_t
+ */
+esp_err_t atecc508a_write(uint8_t zone, uint16_t address, uint8_t *buffer, uint8_t length);

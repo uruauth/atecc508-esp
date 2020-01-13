@@ -108,6 +108,13 @@ esp_err_t atecc508a_is_configured(uint8_t *is_configured);
  *
  * @return esp_err_t
  */
+esp_err_t atecc508a_configure();
+
+/**
+ * @brief
+ *
+ * @return esp_err_t
+ */
 esp_err_t atecc508a_write_config();
 
 esp_err_t atecc508a_lock_config();
