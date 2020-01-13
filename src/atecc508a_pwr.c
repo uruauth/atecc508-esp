@@ -5,10 +5,10 @@
 #include <driver/i2c.h>
 
 #include "atecc508a.h"
-#include "atecc508a_util.h"
 #include "atecc508a_comm.h"
+#include "atecc508a_util.h"
 
-#define LOG_TAG __FUNCTION__
+#define LOG_TAG "atecc508a"
 
 esp_err_t atecc508a_wake_up()
 {

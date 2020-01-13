@@ -3,6 +3,8 @@
 
 #include "atecc508a_crc.h"
 
+#define LOG_TAG "atecc508a"
+
 #define ATECC508A_CRC_POLYNOM 0x8005
 
 void atecc508a_crc_begin(atecc508a_crc_ctx_t *ctx)
