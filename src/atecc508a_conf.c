@@ -32,12 +32,12 @@ esp_err_t atecc508a_is_configured(uint8_t *is_configured)
     ESP_LOGD(LOG_TAG, "Current config status:");
     ESP_LOGD(LOG_TAG, "  dataOTPLockStatus = 0x%02X", atecc508a_config[86]);
     ESP_LOGD(LOG_TAG, "  configLockStatus = 0x%02X", atecc508a_config[87]);
-    ESP_LOGD(LOG_TAG, "  slot0LockStatus = 0x%02X", atecc508a_config[88]);
+    ESP_LOGD(LOG_TAG, "  slot0LockStatus = 0x%02X", atecc508a_config[88] & 1);
 
     // dataOTPLockStatus = config[86], then set according to status (0x55=UNlocked, 0x00=Locked)
     // configLockStatus = config[87], then set according to status (0x55=UNlocked, 0x00=Locked)
     // slot0LockStatus = config[88], then set according to status (0x55=UNlocked, 0x00=Locked)
-    if (atecc508a_config[86] == 0x00 && atecc508a_config[87] == 0x00 && atecc508a_config[88] == 0x00)
+    if (atecc508a_config[86] == 0x00 && atecc508a_config[87] == 0x00 && (atecc508a_config[88] & 1) == 0x00)
     {
         *is_configured = 1;
     }

@@ -11,7 +11,7 @@
 
 esp_err_t atecc508a_lock(uint8_t zone)
 {
-    // ESP_ERROR_CHECK(atecc508a_send_command(ATECC508A_CMD_LOCK, zone, 0x0000, NULL, 0));
+    ESP_ERROR_CHECK(atecc508a_send_command(ATECC508A_CMD_LOCK, zone, 0x0000, NULL, 0));
 
     atecc508a_delay(32);
 
