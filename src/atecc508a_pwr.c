@@ -29,7 +29,7 @@ esp_err_t atecc508a_wake_up()
 
     if (ret != ESP_OK)
     {
-        ESP_LOGE(LOG_TAG, "Failed to execute I2C comman");
+        ESP_LOGE(LOG_TAG, "Failed to execute I2C command");
         return ret;
     }
 
@@ -39,7 +39,7 @@ esp_err_t atecc508a_wake_up()
 
     // Try to read back from the ATECC508A
     // 1 byte + status + CRC
-    uint8_t response[1 + 3];
+    uint8_t response[1 + 3] = {};
 
     ESP_CHECK_RET(atecc508a_receive(response, sizeof(response)));
 

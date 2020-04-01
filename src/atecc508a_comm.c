@@ -21,7 +21,7 @@
 
 esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, uint16_t param2, uint8_t *data, size_t length)
 {
-    ESP_LOGD(LOG_TAG, "> Sending command 0x%02X param1=0x%02X, param2=0x%04X", command, param1, param2);
+    ESP_LOGD(LOG_TAG, "Sending command 0x%02X param1=0x%02X, param2=0x%04X", command, param1, param2);
 
     // build packet array (total_transmission) to send a communication to IC, with opcode COMMAND
     // It expects to see: word address, count, command opcode, param1, param2, data (optional), CRC[0], CRC[1]
@@ -33,9 +33,8 @@ esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, ui
         command,
         param1,
         (param2 & 0xFF),
-        (param2 >> 8)};
+        (param2 >> 8) & 0xFF};
 
-    uint16_t crc;
 
     // calculate packet CRC
     atecc508a_crc_ctx_t ctx;
@@ -44,6 +43,7 @@ esp_err_t atecc508a_send_command(atecc508a_command_t command, uint8_t param1, ui
     atecc508a_crc_update(&ctx, header + 1, sizeof(header) - 1);
     atecc508a_crc_update(&ctx, data, length);
 
+    uint16_t crc = 0;
     atecc508a_crc_end(&ctx, &crc);
 
     // wake up the device
